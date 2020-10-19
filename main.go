@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -41,6 +42,13 @@ type InputStruct struct {
 	EndTime      string        `json:"end_time" bson:"end_time"`
 }
 
+// ResponseStruct ...
+type ResponseStruct struct {
+	StartIndex    int       `json:"start_index" bson:"start_index"`
+	EndIndex      int       `json:"end_index" bson:"end_index"`
+	MeetingsArray []Meeting `json:"meetings" bson:"meetings"`
+}
+
 // Global database variables
 var collection *mongo.Collection
 var client *mongo.Client
@@ -74,7 +82,7 @@ func connectDB() {
 	return
 }
 
-// Routes
+// Routes for /meetings
 func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
@@ -106,6 +114,33 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"message": "Can't find method requested"}`))
 	}
+}
+
+// Routes for /meeting/:id
+func searchMeetingEndpoint(w http.ResponseWriter, r *http.Request) {
+	meetingID := r.URL.Path[len("/meeting/"):]
+
+	var meeting Meeting
+	filter := bson.M{"meeting_id": meetingID}
+
+	err := collection.FindOne(ctx, filter).Decode(&meeting)
+	if err != nil {
+		log.Printf("Error while retrieving data, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	js, err := json.Marshal(meeting)
+	if err != nil {
+		log.Printf("Error while marshalling JSON, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+
 }
 
 // Function to handle time range GET request
@@ -146,13 +181,35 @@ func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeS
 		}
 	}
 
-	js, err := json.Marshal(meetings)
+	var responseStruct ResponseStruct
+	offsetParam := r.URL.Query()["offset"]
+	if len(offsetParam) > 0 {
+		offsetIndex, err := strconv.Atoi(offsetParam[0])
+		if err != nil {
+			log.Printf("Error converting offset string to integer, %v\n", err.Error())
+			http.Error(w, "Offset value "+offsetParam[0]+" is not a valid integer", http.StatusBadRequest)
+		}
+		var reducedMeetings []Meeting
+		var i int
+		for i = offsetIndex; i < len(meetings) && i < offsetIndex+10; i++ {
+			reducedMeetings = append(reducedMeetings, meetings[i])
+		}
+		responseStruct.StartIndex = offsetIndex
+		responseStruct.EndIndex = i
+		responseStruct.MeetingsArray = reducedMeetings
+
+	} else {
+		responseStruct.StartIndex = 0
+		responseStruct.EndIndex = len(meetings)
+		responseStruct.MeetingsArray = meetings
+	}
+
+	js, err := json.Marshal(responseStruct)
 	if err != nil {
 		log.Printf("Error while marshalling JSON, Reason %v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
@@ -186,13 +243,35 @@ func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, partic
 		}
 	}
 
-	js, err := json.Marshal(meetings)
+	var responseStruct ResponseStruct
+	offsetParam := r.URL.Query()["offset"]
+	if len(offsetParam) > 0 {
+		offsetIndex, err := strconv.Atoi(offsetParam[0])
+		if err != nil {
+			log.Printf("Error converting offset string to integer, %v\n", err.Error())
+			http.Error(w, "Offset value "+offsetParam[0]+" is not a valid integer", http.StatusBadRequest)
+		}
+		var reducedMeetings []Meeting
+		var i int
+		for i = offsetIndex - 1; i < len(meetings) && i < offsetIndex+10; i++ {
+			reducedMeetings = append(reducedMeetings, meetings[i])
+		}
+		responseStruct.StartIndex = offsetIndex
+		responseStruct.EndIndex = i
+		responseStruct.MeetingsArray = reducedMeetings
+
+	} else {
+		responseStruct.StartIndex = 0
+		responseStruct.EndIndex = len(meetings)
+		responseStruct.MeetingsArray = meetings
+	}
+
+	js, err := json.Marshal(responseStruct)
 	if err != nil {
 		log.Printf("Error while marshalling JSON, Reason %v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
@@ -256,32 +335,6 @@ func createNewMeetingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(js)
 }
 
-func searchMeetingEndpoint(w http.ResponseWriter, r *http.Request) {
-	meetingID := r.URL.Path[len("/meeting/"):]
-
-	var meeting Meeting
-	filter := bson.M{"meeting_id": meetingID}
-
-	err := collection.FindOne(ctx, filter).Decode(&meeting)
-	if err != nil {
-		log.Printf("Error while retrieving data, Reason %v\n", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	js, err := json.Marshal(meeting)
-	if err != nil {
-		log.Printf("Error while marshalling JSON, Reason %v\n", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
-
-}
-
 // Create Time object from String
 func stringToTime(timeString string) (time.Time, error) {
 	layout := "02-01-2006 03:04:05 PM" // Time input in JSON as DD-MM-YYYY HH:MM:SS AM
@@ -298,7 +351,7 @@ func checkInputValidity(participants []Participant, meetingStart time.Time, meet
 	var flag bool
 	var err error
 	for i, p := range participants {
-		flag, err = checkParticipantAvailability(p.Email, meetingStart, meetingEnd)
+		flag, err = checkParticipantAvailability(p.Email, p.RSVP, meetingStart, meetingEnd)
 		if err != nil {
 			return false, -1, err
 		}
@@ -310,7 +363,7 @@ func checkInputValidity(participants []Participant, meetingStart time.Time, meet
 }
 
 // Check if participant already has meeting
-func checkParticipantAvailability(email string, meetingStart time.Time, meetingEnd time.Time) (bool, error) {
+func checkParticipantAvailability(email string, currentRSVP string, meetingStart time.Time, meetingEnd time.Time) (bool, error) {
 	cur, err := collection.Find(ctx, bson.D{})
 	if err != nil {
 		log.Fatal(err)
@@ -330,7 +383,7 @@ func checkParticipantAvailability(email string, meetingStart time.Time, meetingE
 			if p.Email == email {
 				if meetingStart.Before(meeting.EndTime) && meetingStart.After(meeting.StartTime) ||
 					meetingEnd.After(meeting.StartTime) && meetingEnd.Before(meeting.EndTime) {
-					if p.RSVP == "yes" {
+					if p.RSVP == "yes" && currentRSVP == "yes" {
 						return true, nil
 					}
 				}

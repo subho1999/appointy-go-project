@@ -316,7 +316,12 @@ func createNewMeetingHandler(w http.ResponseWriter, r *http.Request) {
 	defer lock.Unlock()
 
 	var input InputStruct
-	json.NewDecoder(r.Body).Decode(&input)
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		log.Printf("Error while decoding input %v", err.Error())
+		http.Error(w, "Error while decoding input "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	var meeting Meeting
 	meeting.ID = input.ID

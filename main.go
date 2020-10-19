@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
 	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -17,28 +17,28 @@ import (
 
 // Participant ...
 type Participant struct {
-	name  string `json:"name" bson:"name"`
-	email string `json:"email" bson:"email"`
-	rsvp  string `json:"rsvp" bson:"rsvp"`
+	Name  string `json:"name" bson:"name"`
+	Email string `json:"email" bson:"email"`
+	RSVP  string `json:"rsvp" bson:"rsvp"`
 }
 
 // Meeting ...
 type Meeting struct {
-	id                string        `json:"meeting_id" bson:"meeting_id"`
-	title             string        `json:"title" bson:"title"`
-	participants      []Participant `json:"participants" bson:"participants"`
-	startTime         time.Time     `json:"start_time" bson:"start_time"`
-	endTime           time.Time     `json:"end_time" bson:"end_time"`
-	creationTimestamp time.Time     `json:"created" bson:"created"`
+	ID                string        `json:"meeting_id" bson:"meeting_id"`
+	Title             string        `json:"title" bson:"title"`
+	Participants      []Participant `json:"participants" bson:"participants"`
+	StartTime         time.Time     `json:"start_time" bson:"start_time"`
+	EndTime           time.Time     `json:"end_time" bson:"end_time"`
+	CreationTimestamp time.Time     `json:"created" bson:"created"`
 }
 
 // InputStruct ...
 type InputStruct struct {
-	id           string        `json:"meeting_id" bson:"meeting_id"`
-	title        string        `json:"title" bson:"title"`
-	participants []Participant `json:"participants" bson:"participants"`
-	startTime    string        `json:"start_time" bson:"start_time"`
-	endTime      string        `json:"end_time" bson:"end_time"`
+	ID           string        `json:"meeting_id" bson:"meeting_id"`
+	Title        string        `json:"title" bson:"title"`
+	Participants []Participant `json:"participants" bson:"participants"`
+	StartTime    string        `json:"start_time" bson:"start_time"`
+	EndTime      string        `json:"end_time" bson:"end_time"`
 }
 
 // Global database variables
@@ -46,7 +46,7 @@ var collection *mongo.Collection
 var client *mongo.Client
 var ctx context.Context
 
-// Mutex variable to lock threads
+// Mutex Locks
 var lock sync.Mutex
 
 // Create Connection to MongoDB
@@ -77,103 +77,20 @@ func connectDB() {
 // Routes
 func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 
-	lock.Lock()
-	defer lock.Unlock()
-
 	switch r.Method {
 	case "GET":
+
 		startTimeParam := r.URL.Query()["start"]
 		endTimeParam := r.URL.Query()["end"]
 		participantParam := r.URL.Query()["participant"]
 
 		if len(startTimeParam) > 0 && len(endTimeParam) > 0 {
 
-			startTime, err := stringToTime(startTimeParam[0])
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusNotAcceptable)
-				return
-			}
-
-			endTime, err := stringToTime(endTimeParam[0])
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusNotAcceptable)
-				return
-			}
-
-			cur, err := collection.Find(ctx, bson.D{})
-			if err != nil {
-				log.Fatal(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer cur.Close(ctx)
-
-			var meetings []Meeting
-			for cur.Next(ctx) {
-				var meeting Meeting
-				err = cur.Decode(&meeting)
-				if err != nil {
-					log.Fatal(err)
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				if startTime.Before(meeting.startTime) || startTime.Equal(meeting.startTime) &&
-					endTime.After(meeting.endTime) || endTime.Equal(meeting.endTime) {
-					meetings = append(meetings, meeting)
-				}
-			}
-
-			js, err := json.Marshal(meetings)
-			if err != nil {
-				log.Printf("Error while marshalling JSON, Reason %v\n", err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			w.WriteHeader(http.StatusOK)
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(js)
+			queryHandlerTimeDuration(w, r, startTimeParam[0], endTimeParam[0])
 
 		} else if len(participantParam) > 0 {
 
-			participant := participantParam[0]
-			cur, err := collection.Find(ctx, bson.D{})
-			if err != nil {
-				log.Fatal(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer cur.Close(ctx)
-
-			var meetings []Meeting
-			for cur.Next(ctx) {
-				var meeting Meeting
-				err = cur.Decode(&meeting)
-				if err != nil {
-					log.Fatal(err)
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				for _, p := range meeting.participants {
-					if p.email == participant {
-						meetings = append(meetings, meeting)
-						break
-					}
-				}
-			}
-
-			js, err := json.Marshal(meetings)
-			if err != nil {
-				log.Printf("Error while marshalling JSON, Reason %v\n", err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			w.WriteHeader(http.StatusOK)
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(js)
+			queryHandlerParticipantEmail(w, r, participantParam[0])
 
 		} else {
 			log.Printf("Wrong GET Query called")
@@ -182,63 +99,161 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "POST":
 
-		var input InputStruct
-		json.NewDecoder(r.Body).Decode(&input)
-
-		var meeting Meeting
-		meeting.id = input.id
-		meeting.title = input.title
-		meeting.participants = input.participants
-
-		startTime, err := stringToTime(input.startTime)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotAcceptable)
-			return
-		}
-		meeting.startTime = startTime
-
-		endTime, err := stringToTime(input.endTime)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotAcceptable)
-			return
-		}
-		meeting.endTime = endTime
-
-		creationTime := time.Now()
-		meeting.creationTimestamp = creationTime
-
-		flag, index, err := checkInputValidity(meeting.participants, meeting.startTime, meeting.endTime)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if flag == true {
-			log.Printf("Participant %s already has a meeting in this time period", meeting.participants[index].name)
-			http.Error(w, "Participant "+meeting.participants[index].name+" already has a meeting in this time period", http.StatusNotAcceptable)
-			return
-		}
-		_, err = collection.InsertOne(ctx, meeting)
-		if err != nil {
-			log.Printf("Error while inserting data, Reason %v\n", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		js, err := json.Marshal(meeting)
-		if err != nil {
-			log.Printf("Error while marshalling JSON, Reason %v\n", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(js)
+		createNewMeetingHandler(w, r)
 
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"message": "Can't find method requested"}`))
 	}
-	// time.Sleep(2*time.Second)
+}
+
+// Function to handle time range GET request
+func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeString string, endTimeString string) {
+	startTime, err := stringToTime(startTimeString)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotAcceptable)
+		return
+	}
+
+	endTime, err := stringToTime(endTimeString)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotAcceptable)
+		return
+	}
+
+	cur, err := collection.Find(ctx, bson.D{})
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cur.Close(ctx)
+
+	var meetings []Meeting
+	for cur.Next(ctx) {
+		var meeting Meeting
+		err = cur.Decode(&meeting)
+		if err != nil {
+			log.Fatal(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if startTime.Before(meeting.StartTime) || startTime.Equal(meeting.StartTime) &&
+			endTime.After(meeting.EndTime) || endTime.Equal(meeting.EndTime) {
+			meetings = append(meetings, meeting)
+		}
+	}
+
+	js, err := json.Marshal(meetings)
+	if err != nil {
+		log.Printf("Error while marshalling JSON, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+}
+
+// Function to handle participant Email GET request
+func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, participantEmail string) {
+	cur, err := collection.Find(ctx, bson.D{})
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cur.Close(ctx)
+
+	var meetings []Meeting
+	for cur.Next(ctx) {
+		var meeting Meeting
+		err = cur.Decode(&meeting)
+		if err != nil {
+			log.Fatal(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		for _, p := range meeting.Participants {
+			if p.Email == participantEmail {
+				meetings = append(meetings, meeting)
+				break
+			}
+		}
+	}
+
+	js, err := json.Marshal(meetings)
+	if err != nil {
+		log.Printf("Error while marshalling JSON, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+}
+
+// Function to handle POST requests
+func createNewMeetingHandler(w http.ResponseWriter, r *http.Request) {
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	var input InputStruct
+	json.NewDecoder(r.Body).Decode(&input)
+
+	var meeting Meeting
+	meeting.ID = input.ID
+	meeting.Title = input.Title
+	meeting.Participants = input.Participants
+
+	startTime, err := stringToTime(input.StartTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotAcceptable)
+		return
+	}
+	meeting.StartTime = startTime
+
+	endTime, err := stringToTime(input.EndTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotAcceptable)
+		return
+	}
+	meeting.EndTime = endTime
+
+	creationTime := time.Now()
+	meeting.CreationTimestamp = creationTime
+
+	flag, index, err := checkInputValidity(meeting.Participants, meeting.StartTime, meeting.EndTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if flag == true {
+		log.Printf("Participant %s already has a meeting in this time period", meeting.Participants[index].Name)
+		http.Error(w, "Participant "+meeting.Participants[index].Name+" already has a meeting in this time period", http.StatusNotAcceptable)
+		return
+	}
+	_, err = collection.InsertOne(ctx, meeting)
+	if err != nil {
+		log.Printf("Error while inserting data, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	js, err := json.Marshal(meeting)
+	if err != nil {
+		log.Printf("Error while marshalling JSON, Reason %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
 }
 
 func searchMeetingEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +298,7 @@ func checkInputValidity(participants []Participant, meetingStart time.Time, meet
 	var flag bool
 	var err error
 	for i, p := range participants {
-		flag, err = checkParticipantAvailability(p.email, meetingStart, meetingEnd)
+		flag, err = checkParticipantAvailability(p.Email, meetingStart, meetingEnd)
 		if err != nil {
 			return false, -1, err
 		}
@@ -311,11 +326,11 @@ func checkParticipantAvailability(email string, meetingStart time.Time, meetingE
 			return false, err
 		}
 
-		for _, p := range meeting.participants {
-			if p.email == email {
-				if meetingStart.Before(meeting.endTime) && meetingStart.After(meeting.startTime) ||
-					meetingEnd.After(meeting.startTime) && meetingEnd.Before(meeting.endTime) {
-					if p.rsvp == "yes" {
+		for _, p := range meeting.Participants {
+			if p.Email == email {
+				if meetingStart.Before(meeting.EndTime) && meetingStart.After(meeting.StartTime) ||
+					meetingEnd.After(meeting.StartTime) && meetingEnd.Before(meeting.EndTime) {
+					if p.RSVP == "yes" {
 						return true, nil
 					}
 				}

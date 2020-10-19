@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -16,34 +17,37 @@ import (
 
 // Participant ...
 type Participant struct {
-	Name  string `json:"name" bson:"name"`
-	Email string `json:"email" bson:"email"`
-	RSVP  string `json:"rsvp" bson:"rsvp"`
+	name  string `json:"name" bson:"name"`
+	email string `json:"email" bson:"email"`
+	rsvp  string `json:"rsvp" bson:"rsvp"`
 }
 
 // Meeting ...
 type Meeting struct {
-	ID                string        `json:"meeting_id" bson:"meeting_id"`
-	Title             string        `json:"title" bson:"title"`
-	Participants      []Participant `json:"participants" bson:"participants"`
-	StartTime         time.Time     `json:"start_time" bson:"start_time"`
-	EndTime           time.Time     `json:"end_time" bson:"end_time"`
-	CreationTimestamp time.Time     `json:"created" bson:"created"`
+	id                string        `json:"meeting_id" bson:"meeting_id"`
+	title             string        `json:"title" bson:"title"`
+	participants      []Participant `json:"participants" bson:"participants"`
+	startTime         time.Time     `json:"start_time" bson:"start_time"`
+	endTime           time.Time     `json:"end_time" bson:"end_time"`
+	creationTimestamp time.Time     `json:"created" bson:"created"`
 }
 
 // InputStruct ...
 type InputStruct struct {
-	ID           string        `json:"meeting_id" bson:"meeting_id"`
-	Title        string        `json:"title" bson:"title"`
-	Participants []Participant `json:"participants" bson:"participants"`
-	StartTime    string        `json:"start_time" bson:"start_time"`
-	EndTime      string        `json:"end_time" bson:"end_time"`
+	id           string        `json:"meeting_id" bson:"meeting_id"`
+	title        string        `json:"title" bson:"title"`
+	participants []Participant `json:"participants" bson:"participants"`
+	startTime    string        `json:"start_time" bson:"start_time"`
+	endTime      string        `json:"end_time" bson:"end_time"`
 }
 
 // Global database variables
 var collection *mongo.Collection
 var client *mongo.Client
 var ctx context.Context
+
+// Mutex variable to lock threads
+var lock sync.Mutex
 
 // Create Connection to MongoDB
 func connectDB() {
@@ -72,6 +76,9 @@ func connectDB() {
 
 // Routes
 func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
+
+	lock.Lock()
+	defer lock.Unlock()
 
 	switch r.Method {
 	case "GET":
@@ -111,8 +118,8 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				if startTime.Before(meeting.StartTime) || startTime.Equal(meeting.StartTime) &&
-					endTime.After(meeting.EndTime) || endTime.Equal(meeting.EndTime) {
+				if startTime.Before(meeting.startTime) || startTime.Equal(meeting.startTime) &&
+					endTime.After(meeting.endTime) || endTime.Equal(meeting.endTime) {
 					meetings = append(meetings, meeting)
 				}
 			}
@@ -149,8 +156,8 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				for _, p := range meeting.Participants {
-					if p.Email == participant {
+				for _, p := range meeting.participants {
+					if p.email == participant {
 						meetings = append(meetings, meeting)
 						break
 					}
@@ -179,35 +186,35 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&input)
 
 		var meeting Meeting
-		meeting.ID = input.ID
-		meeting.Title = input.Title
-		meeting.Participants = input.Participants
+		meeting.id = input.id
+		meeting.title = input.title
+		meeting.participants = input.participants
 
-		startTime, err := stringToTime(input.StartTime)
+		startTime, err := stringToTime(input.startTime)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotAcceptable)
 			return
 		}
-		meeting.StartTime = startTime
+		meeting.startTime = startTime
 
-		endTime, err := stringToTime(input.EndTime)
+		endTime, err := stringToTime(input.endTime)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotAcceptable)
 			return
 		}
-		meeting.EndTime = endTime
+		meeting.endTime = endTime
 
 		creationTime := time.Now()
-		meeting.CreationTimestamp = creationTime
+		meeting.creationTimestamp = creationTime
 
-		flag, index, err := checkInputValidity(meeting.Participants, meeting.StartTime, meeting.EndTime)
+		flag, index, err := checkInputValidity(meeting.participants, meeting.startTime, meeting.endTime)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if flag == true {
-			log.Printf("Participant %s already has a meeting in this time period", meeting.Participants[index].Name)
-			http.Error(w, "Participant "+meeting.Participants[index].Name+" already has a meeting in this time period", http.StatusNotAcceptable)
+			log.Printf("Participant %s already has a meeting in this time period", meeting.participants[index].name)
+			http.Error(w, "Participant "+meeting.participants[index].name+" already has a meeting in this time period", http.StatusNotAcceptable)
 			return
 		}
 		_, err = collection.InsertOne(ctx, meeting)
@@ -231,7 +238,7 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"message": "Can't find method requested"}`))
 	}
-
+	// time.Sleep(2*time.Second)
 }
 
 func searchMeetingEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +283,7 @@ func checkInputValidity(participants []Participant, meetingStart time.Time, meet
 	var flag bool
 	var err error
 	for i, p := range participants {
-		flag, err = checkParticipantAvailability(p.Email, meetingStart, meetingEnd)
+		flag, err = checkParticipantAvailability(p.email, meetingStart, meetingEnd)
 		if err != nil {
 			return false, -1, err
 		}
@@ -304,11 +311,11 @@ func checkParticipantAvailability(email string, meetingStart time.Time, meetingE
 			return false, err
 		}
 
-		for _, p := range meeting.Participants {
-			if p.Email == email {
-				if meetingStart.Before(meeting.EndTime) && meetingStart.After(meeting.StartTime) ||
-					meetingEnd.After(meeting.StartTime) && meetingEnd.Before(meeting.EndTime) {
-					if p.RSVP == "yes" {
+		for _, p := range meeting.participants {
+			if p.email == email {
+				if meetingStart.Before(meeting.endTime) && meetingStart.After(meeting.startTime) ||
+					meetingEnd.After(meeting.startTime) && meetingEnd.Before(meeting.endTime) {
+					if p.rsvp == "yes" {
 						return true, nil
 					}
 				}

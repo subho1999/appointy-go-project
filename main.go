@@ -50,16 +50,21 @@ type ResponseStruct struct {
 }
 
 // Global database variables
+
+// URI ...
+var URI string = "mongodb://localhost:27017"
 var collection *mongo.Collection
-var client *mongo.Client
 var ctx context.Context
+
+// Layout ...
+var layout string = "02-01-2006 03:04:05 PM" // Time input in JSON as DD-MM-YYYY HH:MM:SS AM
 
 // Mutex Locks
 var lock sync.Mutex
 
 // Create Connection to MongoDB
 func connectDB() {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
+	client, err := mongo.NewClient(options.Client().ApplyURI(URI))
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -112,7 +117,11 @@ func multiEndpointHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"message": "Can't find method requested"}`))
+		_, err := w.Write([]byte(`{"message": "Can't find method requested"}`))
+		if err != nil {
+			log.Printf("Error while writing message")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -139,7 +148,11 @@ func searchMeetingEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		log.Printf("Error while writing message %v", js)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 
 }
 
@@ -159,8 +172,8 @@ func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeS
 
 	cur, err := collection.Find(ctx, bson.D{})
 	if err != nil {
-		log.Fatal(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Fatal(err)
 		return
 	}
 	defer cur.Close(ctx)
@@ -170,8 +183,8 @@ func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeS
 		var meeting Meeting
 		err = cur.Decode(&meeting)
 		if err != nil {
-			log.Fatal(err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Fatal(err)
 			return
 		}
 
@@ -217,15 +230,19 @@ func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeS
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		log.Printf("Error while writing message %v", js)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // Function to handle participant Email GET request
 func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, participantEmail string) {
 	cur, err := collection.Find(ctx, bson.D{})
 	if err != nil {
-		log.Fatal(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Fatal(err)
 		return
 	}
 	defer cur.Close(ctx)
@@ -235,8 +252,8 @@ func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, partic
 		var meeting Meeting
 		err = cur.Decode(&meeting)
 		if err != nil {
-			log.Fatal(err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Fatal(err)
 			return
 		}
 
@@ -285,7 +302,11 @@ func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, partic
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		log.Printf("Error while writing message %v", js)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // Function to handle POST requests
@@ -343,12 +364,16 @@ func createNewMeetingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		log.Printf("Error while writing message %v", js)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // Create Time object from String
 func stringToTime(timeString string) (time.Time, error) {
-	layout := "02-01-2006 03:04:05 PM" // Time input in JSON as DD-MM-YYYY HH:MM:SS AM
+	
 	t, err := time.Parse(layout, timeString)
 	if err != nil {
 		log.Printf("Error while parsing time, Reason %v\n", err.Error())

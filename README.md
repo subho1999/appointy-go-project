@@ -1,5 +1,8 @@
 Download mongo drivers by go get go.mongodb.org/mongo-driver/mongo
 
+MongoDB should be running as localhost at default port 27017
+If running in a different configuration, change the global Variable URI in main.go to your specific MongoDB URI
+
 Build main.go using: go build main.go
 
 The API endpoints are:
@@ -28,7 +31,7 @@ The format of JSON that is passed in POST body is:
 }
 ```
 
-The start_time and end_time values must be of the format: "DD-MM-YYYY HH:MM:SS AM"
+The start_time and end_time values should be of the format: "DD-MM-YYYY HH:MM:SS AM"
 
 For the GET requests the API also provides offset pagination.
 For offset pagination, the URL Query Parameter offset should be used with 0 indexing.

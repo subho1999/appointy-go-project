@@ -189,6 +189,11 @@ func queryHandlerTimeDuration(w http.ResponseWriter, r *http.Request, startTimeS
 			log.Printf("Error converting offset string to integer, %v\n", err.Error())
 			http.Error(w, "Offset value "+offsetParam[0]+" is not a valid integer", http.StatusBadRequest)
 		}
+		if (offsetIndex < 0) {
+			log.Printf("Negative offset Parameter %d", offsetIndex)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		var reducedMeetings []Meeting
 		var i int
 		for i = offsetIndex; i < len(meetings) && i < offsetIndex+10; i++ {
@@ -250,10 +255,16 @@ func queryHandlerParticipantEmail(w http.ResponseWriter, r *http.Request, partic
 		if err != nil {
 			log.Printf("Error converting offset string to integer, %v\n", err.Error())
 			http.Error(w, "Offset value "+offsetParam[0]+" is not a valid integer", http.StatusBadRequest)
+			return
+		}
+		if (offsetIndex < 0) {
+			log.Printf("Negative offset Parameter %d", offsetIndex)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		var reducedMeetings []Meeting
 		var i int
-		for i = offsetIndex - 1; i < len(meetings) && i < offsetIndex+10; i++ {
+		for i = offsetIndex; i < len(meetings) && i < offsetIndex+10; i++ {
 			reducedMeetings = append(reducedMeetings, meetings[i])
 		}
 		responseStruct.StartIndex = offsetIndex

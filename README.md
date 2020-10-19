@@ -31,7 +31,7 @@ The format of JSON that is passed in POST body is:
 The start_time and end_time values must be of the format: "DD-MM-YYYY HH:MM:SS AM"
 
 For the GET requests the API also provides offset pagination.
-For offset pagination, the URL Query Parameter [I]offset[/I] should be used with 0 indexing.
+For offset pagination, the URL Query Parameter offset should be used with 0 indexing.
 If pagination is used 10 entries at most are returned
 
 The JSON structure of the response for GET /meetings?start=<start-time>&end=<end-time>&offset=<offset> 
@@ -59,3 +59,5 @@ and GET /meetings?participant=<email>&offset=<offset> is:
     ]
 }
 ```
+The start_index is the index of the first meeting that satisfies the query
+The end_index is the index of either the meeting just after offset+10 or the last meeting that satisfies the query
